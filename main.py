@@ -45,7 +45,8 @@ oauth_creds = OAuthCredentials(
 )
 drive_upload = build("drive", "v3", credentials=oauth_creds)
 
-sheet = gc.open_by_key(SHEET_ID).sheet1
+# Trỏ chính xác vào tab 06_VIDEO_QUEUE của Google Sheet
+sheet = gc.open_by_key(SHEET_ID).worksheet("06_VIDEO_QUEUE")
 
 
 # ================== TIỆN ÍCH ==================
@@ -132,7 +133,6 @@ async def tao_audio_va_phu_de(text, audio_path, ass_path):
                 dur_sec = chunk["duration"] / 10_000_000
                 submaker_words.append((start_sec, start_sec + dur_sec, chunk["text"]))
 
-    # Gom từng cụm SO_TU_MOI_CUM_PHU_DE từ, lấy mốc thời gian bắt đầu/kết thúc cụm
     cum_list = []
     for idx in range(0, len(submaker_words), SO_TU_MOI_CUM_PHU_DE):
         nhom = submaker_words[idx: idx + SO_TU_MOI_CUM_PHU_DE]
@@ -143,18 +143,15 @@ async def tao_audio_va_phu_de(text, audio_path, ass_path):
         noi_dung = " ".join(w[2] for w in nhom)
         cum_list.append((start, end, noi_dung))
 
-    # Đảm bảo mỗi cụm hiện đủ lâu để đọc kịp (kéo dài "end" nếu cần,
-    # nhưng không bao giờ đè lên thời điểm bắt đầu của cụm kế tiếp)
     for idx in range(len(cum_list)):
         start, end, noi_dung = cum_list[idx]
         gioi_han = (
             cum_list[idx + 1][0] if idx + 1 < len(cum_list) else end + THOI_GIAN_HIEN_TOI_THIEU_GIAY
         )
         end_moi = min(start + THOI_GIAN_HIEN_TOI_THIEU_GIAY, gioi_han)
-        end_moi = max(end_moi, end)  # không rút ngắn nếu bản chất đã dài hơn mức tối thiểu
+        end_moi = max(end_moi, end)
         cum_list[idx] = (start, end_moi, noi_dung)
 
-    # Tạo file .ass (phụ đề chữ trắng đậm, viền đen mềm, đổ bóng nhẹ — phong cách chuyên nghiệp)
     header = """[Script Info]
 ScriptType: v4.00+
 PlayResX: 1280
@@ -175,15 +172,9 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             f"Dialogue: 0,{giay_sang_ass_time(start)},{giay_sang_ass_time(end)},Default,,0,0,0,,{noi_dung_esc}"
         )
 
-    print(f"[DEBUG] So WordBoundary bat duoc: {len(submaker_words)}")
-    print(f"[DEBUG] So cum phu de: {len(cum_list)}")
-
     with open(ass_path, "w", encoding="utf-8") as f:
         f.write(header)
         f.write("\n".join(dong_su_kien))
-
-    with open(ass_path, encoding="utf-8") as f:
-        print(f"[DEBUG] Noi dung file .ass:\n{f.read()}")
 
 
 # ================== GHÉP NHIỀU VIDEO NỀN, XÁO TRỘN ==================
@@ -242,24 +233,10 @@ def chuan_bi_video_nen(folder_id, audio_duration, i):
     return concat_path
 
 
-# ================== GHÉP CUỐI: LOGO + CHỮ LIÊN HỆ + PHỤ ĐỀ ĐỒNG BỘ + AUDIO ==================
+# ================== GHÉP CUỐI: LOGO + CHỮ LIÊN HỆ + PHỤ ĐỀ + AUDIO ==================
 
 def ghep_video(audio_path, background_video, ass_path, out_path):
-    # Dùng đường dẫn tuyệt đối cho file .ass để tránh sai lệch thư mục làm việc
-    # giữa lúc ghi file và lúc ffmpeg đọc file.
     ass_path_abs = os.path.abspath(ass_path)
-
-    # Kiểm tra file .ass thực sự tồn tại và có nội dung phụ đề trước khi ghép,
-    # để log báo lỗi rõ ràng ngay tại đây thay vì render "êm" mà không ra chữ.
-    if not os.path.exists(ass_path_abs):
-        raise FileNotFoundError(f"Khong tim thay file phu de: {ass_path_abs}")
-    with open(ass_path_abs, encoding="utf-8") as f:
-        noi_dung_ass = f.read()
-    if "Dialogue:" not in noi_dung_ass:
-        print(f"[CANH BAO] File .ass khong co dong Dialogue nao (khong co phu de duoc tao): {ass_path_abs}")
-
-    # subtitles filter: trong ffmpeg, dấu ':' trong đường dẫn phải escape bằng '\:'
-    # (đường dẫn Linux bình thường không có ':' nên an toàn, nhưng escape cho chắc)
     ass_path_escaped = ass_path_abs.replace(":", r"\:")
 
     filter_complex = (
@@ -309,20 +286,27 @@ def upload_to_drive(file_path, file_name, parent_folder_id):
 def main():
     rows = sheet.get_all_records()
     for i, row in enumerate(rows, start=2):
-        status = row.get("Status", "")
-        if status == "Done":
+        # Đọc đúng tên cột trạng thái thực tế trong sheet
+        status = row.get("Trạng_thái_video", "").strip()
+        
+        # Chỉ xử lý các dòng đang "Chờ dựng" (hoặc bỏ trống)
+        if status != "Chờ dựng":
             continue
 
         tieu_de = row.get("TieuDe", "").strip()
-        text = row.get("NoiDung", "")
+        text = row.get("NoiDung", "").strip()
         loai_den = row.get("LoaiDen", "").strip()
 
         if not text or not loai_den or not tieu_de:
             continue
 
+        # Cập nhật trạng thái sang "Đang dựng" để tránh chạy trùng lặp
+        sheet.update_cell(i, sheet.find("Trạng_thái_video").col, "Đang dựng")
+
         folder_id = tim_folder_theo_ten_chinh_xac(loai_den, NGUON_VIDEO_NEN_ROOT_ID, drive_read)
         if not folder_id:
             print(f"Dòng {i}: không tìm thấy thư mục '{loai_den}' trong Nguon Video Nen, bỏ qua.")
+            sheet.update_cell(i, sheet.find("Trạng_thái_video").col, "Lỗi")
             continue
 
         audio_path = f"audio_{i}.mp3"
@@ -333,6 +317,7 @@ def main():
         bg_concat_path = chuan_bi_video_nen(folder_id, audio_duration, i)
         if not bg_concat_path:
             print(f"Dòng {i}: thư mục '{loai_den}' không có video, bỏ qua.")
+            sheet.update_cell(i, sheet.find("Trạng_thái_video").col, "Lỗi")
             os.remove(audio_path)
             os.remove(ass_path)
             continue
@@ -344,8 +329,9 @@ def main():
         ten_file = slugify_vi(tieu_de) + ".mp4"
         link = upload_to_drive(out_path, ten_file, sub_folder_id)
 
-        sheet.update_cell(i, sheet.find("LinkDrive").col, link)
-        sheet.update_cell(i, sheet.find("Status").col, "Done")
+        # Ghi Link Drive và đổi trạng thái thành "Đã đăng" (hoặc Done)
+        sheet.update_cell(i, sheet.find("Link_Drive").col, link)
+        sheet.update_cell(i, sheet.find("Trạng_thái_video").col, "Đã đăng")
 
         for p in [audio_path, ass_path, bg_concat_path, out_path]:
             if os.path.exists(p):
