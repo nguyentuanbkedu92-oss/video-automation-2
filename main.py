@@ -289,7 +289,7 @@ def main():
         # Đọc đúng tên cột trạng thái thực tế trong sheet
         status = row.get("Trạng_thái_video", "").strip()
         
-        # Chỉ xử lý các dòng đang "Chờ dựng" (hoặc bỏ trống)
+        # Chỉ xử lý các dòng đang có trạng thái "Chờ dựng"
         if status != "Chờ dựng":
             continue
 
@@ -300,7 +300,7 @@ def main():
         if not text or not loai_den or not tieu_de:
             continue
 
-        # Cập nhật trạng thái sang "Đang dựng" để tránh chạy trùng lặp
+        # Cập nhật trạng thái sang "Đang dựng" để đánh dấu đang xử lý
         sheet.update_cell(i, sheet.find("Trạng_thái_video").col, "Đang dựng")
 
         folder_id = tim_folder_theo_ten_chinh_xac(loai_den, NGUON_VIDEO_NEN_ROOT_ID, drive_read)
@@ -329,7 +329,7 @@ def main():
         ten_file = slugify_vi(tieu_de) + ".mp4"
         link = upload_to_drive(out_path, ten_file, sub_folder_id)
 
-        # Ghi Link Drive và đổi trạng thái thành "Đã đăng" (hoặc Done)
+        # Ghi Link Drive và đổi trạng thái thành "Đã đăng"
         sheet.update_cell(i, sheet.find("Link_Drive").col, link)
         sheet.update_cell(i, sheet.find("Trạng_thái_video").col, "Đã đăng")
 
