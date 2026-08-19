@@ -11,19 +11,43 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+
       - name: Cai Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
+
       - name: Cai FFmpeg va Font
+        timeout-minutes: 5
         run: |
-          sudo apt-get update
-          sudo apt-get install -y ffmpeg fonts-dejavu
-          sudo fc-cache -f -v
+          # ubuntu-latest thuong da co san ffmpeg -> chi cai lai neu thieu,
+          # tranh apt-get install ffmpeg khong can thiet (rat nang, hay treo).
+          if ! command -v ffmpeg >/dev/null 2>&1; then
+            echo "Chua co ffmpeg, tien hanh cai..."
+            # Chuyen mirror ve archive.ubuntu.com (mirror Azure hay bi treo/timeout)
+            sudo sed -i 's/azure.archive.ubuntu.com/archive.ubuntu.com/g' /etc/apt/sources.list
+            sudo apt-get update -o Acquire::Retries=3 -o Acquire::http::Timeout=10 -o Acquire::https::Timeout=10
+            sudo apt-get install -y --no-install-recommends ffmpeg
+          else
+            echo "Da co san ffmpeg: $(ffmpeg -version | head -n1)"
+          fi
+
+          # Font DejaVu can cho drawtext/subtitles trong main.py, thuong nhe hon nhieu so voi ffmpeg
+          if ! fc-list | grep -qi "DejaVu Sans"; then
+            sudo sed -i 's/azure.archive.ubuntu.com/archive.ubuntu.com/g' /etc/apt/sources.list
+            sudo apt-get update -o Acquire::Retries=3 -o Acquire::http::Timeout=10 -o Acquire::https::Timeout=10
+            sudo apt-get install -y --no-install-recommends fonts-dejavu-core
+            sudo fc-cache -f
+          else
+            echo "Da co san font DejaVu"
+          fi
+
       - name: Cai thu vien Python
         run: pip install -r requirements.txt
+
       - name: Tao file service_account.json tu Secret
         run: echo '${{ secrets.GCP_SERVICE_ACCOUNT }}' > service_account.json
+
       - name: Chay script chinh
         env:
           OAUTH_CLIENT_ID: ${{ secrets.OAUTH_CLIENT_ID }}
