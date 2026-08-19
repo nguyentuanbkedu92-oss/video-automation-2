@@ -13,7 +13,7 @@ from googleapiclient.http import MediaFileUpload, MediaIoBaseDownload
 import edge_tts
 
 # ==== CẤU HÌNH ====
-SHEET_ID = "1DSK50AbuwB4-VxkrrGaCkYbp-2TtZALrPi5-8oLLxPY"
+SHEET_ID = "1x5onnS9fZWTm18lDGOLFDDSGQCjC09uCSVBZYTtxmIU"
 DRIVE_OUTPUT_FOLDER_ID = "1V27dj-ws6K3xQEtim-P_PhEfhsXgkJ3I"
 NGUON_VIDEO_NEN_ROOT_ID = "1q8dWz0BvylzeN8hD5AyeX0_2Rs-Zmfrm"
 
