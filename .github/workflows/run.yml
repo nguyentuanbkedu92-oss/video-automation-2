@@ -17,39 +17,40 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Cai FFmpeg va Font
-        timeout-minutes: 5
+      - name: Cai FFmpeg va Font (khong dung apt, tranh mirror Azure hay treo)
+        timeout-minutes: 3
         run: |
-          # ubuntu-latest thuong da co san ffmpeg -> chi cai lai neu thieu,
-          # tranh apt-get install ffmpeg khong can thiet (rat nang, hay treo).
-          # Ubuntu 24.04 (noble) dung dinh dang deb822 moi, mirror Azure nam o
-          # /etc/apt/sources.list.d/ubuntu.sources (KHONG con o /etc/apt/sources.list).
-          # Sua ca 2 noi de chac chan, du runner dung bang cau hinh nao.
-          doi_mirror() {
-            sudo sed -i 's/azure\.archive\.ubuntu\.com/archive.ubuntu.com/g' \
-              /etc/apt/sources.list \
-              /etc/apt/sources.list.d/*.sources \
-              /etc/apt/sources.list.d/*.list \
-              2>/dev/null || true
-          }
+          set -e
 
-          if ! command -v ffmpeg >/dev/null 2>&1; then
-            echo "Chua co ffmpeg, tien hanh cai..."
-            doi_mirror
-            sudo apt-get update -o Acquire::Retries=3 -o Acquire::http::Timeout=10 -o Acquire::https::Timeout=10
-            sudo apt-get install -y --no-install-recommends ffmpeg
-          else
+          # ---- FFmpeg: neu runner da co san thi bo qua, khong thi tai static build ----
+          if command -v ffmpeg >/dev/null 2>&1 && command -v ffprobe >/dev/null 2>&1; then
             echo "Da co san ffmpeg: $(ffmpeg -version | head -n1)"
+          else
+            echo "Tai ffmpeg static build tu GitHub (khong qua apt/mirror Ubuntu)..."
+            curl -sSL --connect-timeout 10 --max-time 90 --retry 3 --retry-delay 2 \
+              -o /tmp/ffmpeg.tar.xz \
+              "https://johnvansickle.com/ffmpeg/releases/ffmpeg-release-amd64-static.tar.xz"
+            mkdir -p /tmp/ffmpeg-extract
+            tar -xf /tmp/ffmpeg.tar.xz -C /tmp/ffmpeg-extract --strip-components=1
+            sudo mv /tmp/ffmpeg-extract/ffmpeg /tmp/ffmpeg-extract/ffprobe /usr/local/bin/
+            sudo chmod +x /usr/local/bin/ffmpeg /usr/local/bin/ffprobe
+            echo "Da cai xong: $(ffmpeg -version | head -n1)"
           fi
 
-          # Font DejaVu can cho drawtext/subtitles trong main.py, thuong nhe hon nhieu so voi ffmpeg
-          if ! fc-list | grep -qi "DejaVu Sans"; then
-            doi_mirror
-            sudo apt-get update -o Acquire::Retries=3 -o Acquire::http::Timeout=10 -o Acquire::https::Timeout=10
-            sudo apt-get install -y --no-install-recommends fonts-dejavu-core
-            sudo fc-cache -f
+          # ---- Font DejaVu: main.py can dung fontfile tai duong dan co dinh nay ----
+          FONT_DIR="/usr/share/fonts/truetype/dejavu"
+          FONT_FILE="$FONT_DIR/DejaVuSans-Bold.ttf"
+          if [ -f "$FONT_FILE" ]; then
+            echo "Da co san font DejaVu tai $FONT_FILE"
           else
-            echo "Da co san font DejaVu"
+            echo "Tai font DejaVu Sans Bold truc tiep tu GitHub..."
+            sudo mkdir -p "$FONT_DIR"
+            curl -sSL --connect-timeout 10 --max-time 60 --retry 3 --retry-delay 2 \
+              -o /tmp/DejaVuSans-Bold.ttf \
+              "https://raw.githubusercontent.com/dejavu-fonts/dejavu-fonts/master/ttf/DejaVuSans-Bold.ttf"
+            sudo mv /tmp/DejaVuSans-Bold.ttf "$FONT_FILE"
+            sudo fc-cache -f "$FONT_DIR"
+            echo "Da cai xong font."
           fi
 
       - name: Cai thu vien Python
