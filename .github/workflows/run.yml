@@ -22,10 +22,20 @@ jobs:
         run: |
           # ubuntu-latest thuong da co san ffmpeg -> chi cai lai neu thieu,
           # tranh apt-get install ffmpeg khong can thiet (rat nang, hay treo).
+          # Ubuntu 24.04 (noble) dung dinh dang deb822 moi, mirror Azure nam o
+          # /etc/apt/sources.list.d/ubuntu.sources (KHONG con o /etc/apt/sources.list).
+          # Sua ca 2 noi de chac chan, du runner dung bang cau hinh nao.
+          doi_mirror() {
+            sudo sed -i 's/azure\.archive\.ubuntu\.com/archive.ubuntu.com/g' \
+              /etc/apt/sources.list \
+              /etc/apt/sources.list.d/*.sources \
+              /etc/apt/sources.list.d/*.list \
+              2>/dev/null || true
+          }
+
           if ! command -v ffmpeg >/dev/null 2>&1; then
             echo "Chua co ffmpeg, tien hanh cai..."
-            # Chuyen mirror ve archive.ubuntu.com (mirror Azure hay bi treo/timeout)
-            sudo sed -i 's/azure.archive.ubuntu.com/archive.ubuntu.com/g' /etc/apt/sources.list
+            doi_mirror
             sudo apt-get update -o Acquire::Retries=3 -o Acquire::http::Timeout=10 -o Acquire::https::Timeout=10
             sudo apt-get install -y --no-install-recommends ffmpeg
           else
@@ -34,7 +44,7 @@ jobs:
 
           # Font DejaVu can cho drawtext/subtitles trong main.py, thuong nhe hon nhieu so voi ffmpeg
           if ! fc-list | grep -qi "DejaVu Sans"; then
-            sudo sed -i 's/azure.archive.ubuntu.com/archive.ubuntu.com/g' /etc/apt/sources.list
+            doi_mirror
             sudo apt-get update -o Acquire::Retries=3 -o Acquire::http::Timeout=10 -o Acquire::https::Timeout=10
             sudo apt-get install -y --no-install-recommends fonts-dejavu-core
             sudo fc-cache -f
