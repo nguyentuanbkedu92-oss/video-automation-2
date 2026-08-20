@@ -232,14 +232,20 @@ def chuan_bi_video_nen(folder_id, audio_duration, i, width, height):
         if count > 40:
             break
 
+    # QUAN TRỌNG: luôn ghép nối các clip nền ở khung NGANG GỐC (1280x720),
+    # KHÔNG crop theo width/height của video cuối cùng ở bước này.
+    # Lý do: nếu crop cứng về khung dọc (720x1280) ngay đây, video nền sẽ mất
+    # nội dung 2 bên, và bước ghep_video() phía sau (tạo nền mờ phóng to + đặt
+    # video gốc giữa khung dọc) sẽ mất tác dụng vì không còn phần "thừa" để mờ.
+    # Giữ nguyên khung ngang gốc ở đây, việc chuyển sang dọc (mờ lấp, không cắt)
+    # hay giữ ngang được xử lý riêng ở ghep_video() theo đúng thiết kế ban đầu.
+    BASE_W, BASE_H = 1280, 720
     concat_path = f"bgconcat_{i}.mp4"
     filter_parts = []
     for j in range(len(playlist_paths)):
-        # scale phủ kín khung (không méo hình) rồi crop phần thừa ở giữa,
-        # phù hợp cả khi chuyển video ngang gốc sang khung dọc (Shorts) và ngược lại.
         filter_parts.append(
-            f"[{j}:v]scale={width}:{height}:force_original_aspect_ratio=increase,"
-            f"crop={width}:{height},setsar=1[v{j}]"
+            f"[{j}:v]scale={BASE_W}:{BASE_H}:force_original_aspect_ratio=increase,"
+            f"crop={BASE_W}:{BASE_H},setsar=1[v{j}]"
         )
     concat_inputs = "".join(f"[v{j}]" for j in range(len(playlist_paths)))
     filter_parts.append(f"{concat_inputs}concat=n={len(playlist_paths)}:v=1:a=0[bgv]")
