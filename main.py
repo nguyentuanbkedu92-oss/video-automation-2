@@ -11,7 +11,6 @@ from google.oauth2.credentials import Credentials as OAuthCredentials
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload, MediaIoBaseDownload
 import edge_tts
-from PIL import Image, ImageDraw, ImageFont, ImageFilter
 
 # ==== CẤU HÌNH ====
 SHEET_ID = "1x5onnS9fZWTm18lDGOLFDDSGQCjC09uCSVBZYTtxmIU"
@@ -21,6 +20,11 @@ NGUON_VIDEO_NEN_ROOT_ID = "1q8dWz0BvylzeN8hD5AyeX0_2Rs-Zmfrm"
 VOICE = "vi-VN-NamMinhNeural"
 LOGO_PATH = "logo.png"
 
+# Dùng cho khung DỌC (Shorts) - 2 dòng tách riêng, giống file Shorts gốc
+TEXT_TEN_SHOP = "Thành Đạt Led"
+TEXT_SDT = "0986474671 -  0867933396"
+
+# Dùng cho khung NGANG - 1 dòng gộp chung, giống file ngang gốc
 TEXT_LIEN_HE = "Thành Đạt Led - 0986474671 -  0867933396"
 
 SO_VIDEO_NEN_MOI_LAN = (2, 3)
@@ -253,106 +257,68 @@ def chuan_bi_video_nen(folder_id, audio_duration, i, width, height):
     return concat_path
 
 
-# ================== TẠO ẢNH CHỮ LIÊN HỆ: GRADIENT CAM + GLOW + VIỀN ĐEN ==================
-
-def tao_anh_chu_lien_he(width, out_path):
-    """
-    Tao PNG (nen trong suot) chua dong chu lien he voi hieu ung chuyen nghiep:
-    - Gradient mau vang cam -> cam dam
-    - Glow mem (mo) mau cam quanh chu
-    - Vien den mong quanh chu de de doc tren moi nen video
-    - Hop nen den mo, bo goc, phia sau chu
-    Dung Pillow vi ffmpeg drawtext KHONG the ve gradient/glow that su
-    (drawtext chi to duoc 1 mau phang).
-    """
-    font_size = max(18, int(width * 32 / 1280))
-    font_path = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
-    font = ImageFont.truetype(font_path, font_size)
-
-    tmp = Image.new("RGBA", (10, 10))
-    tmp_draw = ImageDraw.Draw(tmp)
-    bbox = tmp_draw.textbbox((0, 0), TEXT_LIEN_HE, font=font, stroke_width=2)
-    text_w, text_h = bbox[2] - bbox[0], bbox[3] - bbox[1]
-
-    padding_x, padding_y = int(font_size * 0.7), int(font_size * 0.4)
-    box_w, box_h = text_w + padding_x * 2, text_h + padding_y * 2
-    margin = max(20, font_size // 2)  # chua glow/blur khong bi cat vien
-
-    canvas_w, canvas_h = box_w + margin * 2, box_h + margin * 2
-    canvas = Image.new("RGBA", (canvas_w, canvas_h), (0, 0, 0, 0))
-
-    # 1) Hop nen den mo, bo goc
-    box_layer = Image.new("RGBA", canvas.size, (0, 0, 0, 0))
-    ImageDraw.Draw(box_layer).rounded_rectangle(
-        [margin, margin, margin + box_w, margin + box_h],
-        radius=box_h // 3, fill=(0, 0, 0, 110)
-    )
-    canvas = Image.alpha_composite(canvas, box_layer)
-
-    text_x = margin + padding_x - bbox[0]
-    text_y = margin + padding_y - bbox[1]
-
-    mask = Image.new("L", canvas.size, 0)
-    ImageDraw.Draw(mask).text((text_x, text_y), TEXT_LIEN_HE, font=font, fill=255)
-
-    # 2) Glow mem mau cam quanh chu
-    glow_mask = mask.filter(ImageFilter.GaussianBlur(radius=max(3, font_size // 7)))
-    glow_layer = Image.new("RGBA", canvas.size, (0, 0, 0, 0))
-    glow_layer.paste((255, 150, 40, 200), (0, 0), glow_mask)
-    canvas = Image.alpha_composite(canvas, glow_layer)
-
-    # 3) Vien den mong (mask gian ra lam vien, chu goc de gradient de len tren)
-    outline_mask = mask.filter(ImageFilter.MaxFilter(5))
-    outline_layer = Image.new("RGBA", canvas.size, (0, 0, 0, 0))
-    outline_layer.paste((0, 0, 0, 255), (0, 0), outline_mask)
-    canvas = Image.alpha_composite(canvas, outline_layer)
-
-    # 4) Chu gradient: vang cam nhat (trai) -> cam dam (phai)
-    gradient = Image.new("RGB", canvas.size)
-    grad_draw = ImageDraw.Draw(gradient)
-    left_color, right_color = (255, 205, 70), (255, 90, 0)
-    for x in range(canvas.size[0]):
-        t = x / max(1, canvas.size[0] - 1)
-        r = int(left_color[0] + (right_color[0] - left_color[0]) * t)
-        g = int(left_color[1] + (right_color[1] - left_color[1]) * t)
-        b = int(left_color[2] + (right_color[2] - left_color[2]) * t)
-        grad_draw.line([(x, 0), (x, canvas.size[1])], fill=(r, g, b))
-
-    text_layer = Image.new("RGBA", canvas.size, (0, 0, 0, 0))
-    text_layer.paste(gradient.convert("RGBA"), (0, 0), mask)
-    canvas = Image.alpha_composite(canvas, text_layer)
-
-    canvas.save(out_path, "PNG")
-
-
 # ================== GHÉP CUỐI: LOGO + CHỮ LIÊN HỆ + PHỤ ĐỀ + AUDIO ==================
+# Kiểu logo/chữ liên hệ được chọn theo khung hình, giống hệt 2 file gốc:
+#   - Khung DỌC (height > width, Shorts): nền mờ phóng to lấp khung, video gốc
+#     thu nhỏ đặt giữa, logo to phía trên, 2 dòng chữ (tên shop + SĐT) tách riêng.
+#   - Khung NGANG: giữ nguyên khung ngang, logo nhỏ góc phải trên, 1 dòng chữ
+#     liên hệ gộp chung phía trên giữa khung.
 
 def ghep_video(audio_path, background_video, ass_path, out_path, width, height):
     ass_path_abs = os.path.abspath(ass_path)
+
+    if not os.path.exists(ass_path_abs):
+        raise FileNotFoundError(f"Khong tim thay file phu de: {ass_path_abs}")
+    with open(ass_path_abs, encoding="utf-8") as f:
+        noi_dung_ass = f.read()
+    if "Dialogue:" not in noi_dung_ass:
+        print(f"[CANH BAO] File .ass khong co dong Dialogue nao (khong co phu de duoc tao): {ass_path_abs}")
+
     ass_path_escaped = ass_path_abs.replace(":", r"\:")
 
-    # Logo co giãn theo khung ngang/dọc
-    logo_scale = "140:-1" if height > width else "200:-1"
+    if height > width:
+        # ---- Khung DỌC (Shorts), giống file Shorts gốc ----
+        filter_complex = (
+            f"[0:v]split=2[bgsrc][fgsrc];"
+            f"[bgsrc]scale={width}:{height}:force_original_aspect_ratio=increase,"
+            f"crop={width}:{height},gblur=sigma=25,eq=brightness=-0.05[bgblur];"
+            f"[fgsrc]scale={width}:-2[fgvid];"
+            f"[bgblur][fgvid]overlay=(W-w)/2:(H-h)/2[bg];"
+            f"[1:v]scale=340:140[logo];"
+            f"[bg][logo]overlay=(W-w)/2:55[bg2];"
+            f"[bg2]drawtext=fontfile=/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf:"
+            f"text='{TEXT_TEN_SHOP}':fontsize=40:fontcolor=white:"
+            f"borderw=3:bordercolor=black@0.9:"
+            f"box=1:boxcolor=black@0.45:boxborderw=18:"
+            f"x=(w-text_w)/2:y=205[bg2b];"
+            f"[bg2b]drawtext=fontfile=/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf:"
+            f"text='{TEXT_SDT}':fontsize=48:fontcolor=#FFD500:"
+            f"borderw=3:bordercolor=black@0.9:"
+            f"box=1:boxcolor=black@0.5:boxborderw=20:"
+            f"x=(w-text_w)/2:y=300[bg3];"
+            f"[bg3]subtitles=filename='{ass_path_escaped}':"
+            f"fontsdir=/usr/share/fonts/truetype/dejavu[outv]"
+        )
+    else:
+        # ---- Khung NGANG, giống file ngang gốc ----
+        filter_complex = (
+            f"[0:v]scale={width}:{height}[bg];"
+            f"[1:v]scale=200:-1[logo];"
+            f"[bg][logo]overlay=W-w-20:20[bg2];"
+            f"[bg2]drawtext=fontfile=/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf:"
+            f"text='{TEXT_LIEN_HE}':fontsize=32:fontcolor=#FF8A00:"
+            f"borderw=2:bordercolor=black@0.8:"
+            f"box=1:boxcolor=black@0.4:boxborderw=14:"
+            f"x=(w-text_w)/2:y=50[bg3];"
+            f"[bg3]subtitles=filename='{ass_path_escaped}':"
+            f"fontsdir=/usr/share/fonts/truetype/dejavu[outv]"
+        )
 
-    # Tao anh chu lien he (gradient + glow + vien) bang Pillow, roi ghep len
-    # video bang overlay filter thay vi drawtext (drawtext khong lam duoc gradient).
-    contact_img_path = out_path.rsplit(".", 1)[0] + "_contact.png"
-    tao_anh_chu_lien_he(width, contact_img_path)
-
-    filter_complex = (
-        f"[0:v]scale={width}:{height}[bg];"
-        f"[1:v]scale={logo_scale}[logo];"
-        f"[bg][logo]overlay=W-w-20:20[bg2];"
-        f"[bg2][3:v]overlay=(W-w)/2:50[bg3];"
-        f"[bg3]subtitles=filename='{ass_path_escaped}':"
-        f"fontsdir=/usr/share/fonts/truetype/dejavu[outv]"
-    )
     cmd = [
         "ffmpeg", "-y",
         "-i", background_video,
         "-i", LOGO_PATH,
         "-i", audio_path,
-        "-i", contact_img_path,
         "-filter_complex", filter_complex,
         "-map", "[outv]", "-map", "2:a",
         "-c:v", "libx264", "-c:a", "aac",
@@ -360,9 +326,6 @@ def ghep_video(audio_path, background_video, ass_path, out_path, width, height):
         out_path,
     ]
     subprocess.run(cmd, check=True)
-
-    if os.path.exists(contact_img_path):
-        os.remove(contact_img_path)
 
 
 def upload_to_drive(file_path, file_name, parent_folder_id):
