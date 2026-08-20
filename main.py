@@ -278,24 +278,39 @@ def ghep_video(audio_path, background_video, ass_path, out_path, width, height):
 
     if height > width:
         # ---- Khung DỌC (Shorts), giống file Shorts gốc ----
+        # Kích thước logo/chữ/vị trí gốc được tính cho khung tham chiếu rộng 1080px.
+        # Co giãn theo tỉ lệ width/1080 để không bị tràn khi width thực tế (720) nhỏ hơn.
+        ty_le = width / 1080.0
+        logo_w = max(1, round(340 * ty_le))
+        logo_h = max(1, round(140 * ty_le))
+        y_logo = round(55 * ty_le)
+        fontsize_shop = max(10, round(40 * ty_le))
+        y_shop = round(205 * ty_le)
+        borderw_shop = max(1, round(3 * ty_le))
+        boxborderw_shop = max(1, round(18 * ty_le))
+        fontsize_sdt = max(10, round(48 * ty_le))
+        y_sdt = round(300 * ty_le)
+        borderw_sdt = max(1, round(3 * ty_le))
+        boxborderw_sdt = max(1, round(20 * ty_le))
+
         filter_complex = (
             f"[0:v]split=2[bgsrc][fgsrc];"
             f"[bgsrc]scale={width}:{height}:force_original_aspect_ratio=increase,"
             f"crop={width}:{height},gblur=sigma=25,eq=brightness=-0.05[bgblur];"
             f"[fgsrc]scale={width}:-2[fgvid];"
             f"[bgblur][fgvid]overlay=(W-w)/2:(H-h)/2[bg];"
-            f"[1:v]scale=340:140[logo];"
-            f"[bg][logo]overlay=(W-w)/2:55[bg2];"
+            f"[1:v]scale={logo_w}:{logo_h}[logo];"
+            f"[bg][logo]overlay=(W-w)/2:{y_logo}[bg2];"
             f"[bg2]drawtext=fontfile=/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf:"
-            f"text='{TEXT_TEN_SHOP}':fontsize=40:fontcolor=white:"
-            f"borderw=3:bordercolor=black@0.9:"
-            f"box=1:boxcolor=black@0.45:boxborderw=18:"
-            f"x=(w-text_w)/2:y=205[bg2b];"
+            f"text='{TEXT_TEN_SHOP}':fontsize={fontsize_shop}:fontcolor=white:"
+            f"borderw={borderw_shop}:bordercolor=black@0.9:"
+            f"box=1:boxcolor=black@0.45:boxborderw={boxborderw_shop}:"
+            f"x=(w-text_w)/2:y={y_shop}[bg2b];"
             f"[bg2b]drawtext=fontfile=/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf:"
-            f"text='{TEXT_SDT}':fontsize=48:fontcolor=#FFD500:"
-            f"borderw=3:bordercolor=black@0.9:"
-            f"box=1:boxcolor=black@0.5:boxborderw=20:"
-            f"x=(w-text_w)/2:y=300[bg3];"
+            f"text='{TEXT_SDT}':fontsize={fontsize_sdt}:fontcolor=#FFD500:"
+            f"borderw={borderw_sdt}:bordercolor=black@0.9:"
+            f"box=1:boxcolor=black@0.5:boxborderw={boxborderw_sdt}:"
+            f"x=(w-text_w)/2:y={y_sdt}[bg3];"
             f"[bg3]subtitles=filename='{ass_path_escaped}':"
             f"fontsdir=/usr/share/fonts/truetype/dejavu[outv]"
         )
